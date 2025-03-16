@@ -155,7 +155,7 @@ int main(int argc, char* argv[])
     std::filesystem::create_directory(downloadFolder);
     std::vector<cResult> results;
 
-    for (int z = 0; z < 40; ++z)
+    for (int z = 10; z < 40; ++z)
     {
 
         // Create the URL using C++23 format
