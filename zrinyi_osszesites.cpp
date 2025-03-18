@@ -6,8 +6,16 @@
 #include <format>
 #include <print> 
 #include <ranges>
+#include <unordered_map>
 
 std::string downloadFolder = "./downloads";
+
+size_t writeCallback(void* contents, size_t size, size_t nmemb, std::string* out)
+{
+    size_t totalSize = size * nmemb;
+    out->append(static_cast<char*>(contents), totalSize);
+    return totalSize;
+}
 
 std::string downloadFile(const std::string& url, const std::string& localPath) 
 {
@@ -18,13 +26,6 @@ std::string downloadFile(const std::string& url, const std::string& localPath)
         return {};
     }
     std::string data;
-
-    auto writeCallback = [](void* contents, size_t size, size_t nmemb, std::string* out) -> size_t 
-    {
-        size_t totalSize = size * nmemb;
-        out->append(static_cast<char*>(contents), totalSize);
-        return totalSize;
-    };
 
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeCallback);
@@ -52,6 +53,7 @@ std::string downloadFile(const std::string& url, const std::string& localPath)
         }
     }
     curl_easy_cleanup(curl); 
+    return data;
 }
 
 std::string getFileContent(const std::string& year, const std::string& grade, int region, bool allowDownload)
@@ -106,6 +108,13 @@ struct cResult
     std::string city;
     int points;
     int prior;
+};
+
+struct cSchoolResult
+{
+    int points = 0;
+    int prior = 0;
+    int count = 0;
 };
 
 
@@ -167,13 +176,34 @@ int main(int argc, char* argv[])
     }
     std::ranges::sort(results, [](const cResult& a, const cResult& b) { return std::make_tuple(a.points, a.prior, b.name) > std::make_tuple(b.points, b.prior, a.name); });
     std::ofstream outfile(std::format("eredmenyek_{}_{}.txt", year, grade));
+    std::unordered_map<std::string, cSchoolResult> schoolResults;
     for (auto&& [pos, result] : results | std::views::enumerate)
     {
         std::string resultText = 
             pos != 0 && results[pos].points == results[pos - 1].points && results[pos].prior == results[pos - 1].prior ? "   " : std::format("{:3}", pos + 1);
 
+        auto& schoolResult = schoolResults[std::format("{} ({})", result.school, result.city)];
+        if (schoolResult.count < 4)
+        {
+            schoolResult.points += result.points;
+            schoolResult.prior += result.prior;
+            ++schoolResult.count;
+        }
+
         resultText += std::format(" {:35} {:3}  {:3}  {:50} {:20}\n", result.name, result.points, result.prior, result.school, result.city);
 
+        std::print("{}", resultText);
+        outfile << resultText;
+    }
+    std::string schoolResultHeader = "\n\n\nIskolak top 4 versenyzo alapjan : \n\n";
+    outfile << schoolResultHeader;
+    std::print("{}", schoolResultHeader);
+
+    std::vector<std::pair<std::string, cSchoolResult>> sortedSchoolResults(schoolResults.begin(), schoolResults.end());
+    std::ranges::sort(sortedSchoolResults, [](const auto& a, const auto& b) { return std::make_tuple(a.second.points, a.second.prior, b.first) > std::make_tuple(b.second.points, b.second.prior, a.first); });
+    for (auto&& [pos, result] : sortedSchoolResults | std::views::enumerate)
+    {
+        std::string resultText = std::format("{:3} {:60} {:3}  {:3}\n", pos + 1, result.first, result.second.points, result.second.prior);
         std::print("{}", resultText);
         outfile << resultText;
     }
