@@ -9,54 +9,49 @@
 
 std::string downloadFolder = "./downloads";
 
-// Callback function to store the data in a string
-size_t writeCallback(void* contents, size_t size, size_t nmemb, std::string* out) 
-{
-    size_t totalSize = size * nmemb;
-    out->append(static_cast<char*>(contents), totalSize);
-    return totalSize;
-}
-
-
-// Function to download the file from the URL and save it locally
 std::string downloadFile(const std::string& url, const std::string& localPath) 
 {
     CURL* curl = curl_easy_init();
+    if (!curl)
+    {
+        std::cerr << "Failed to initialize curl" << std::endl;
+        return {};
+    }
     std::string data;
 
-    if (curl) {
-        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeCallback);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &data);
+    auto writeCallback = [](void* contents, size_t size, size_t nmemb, std::string* out) -> size_t 
+    {
+        size_t totalSize = size * nmemb;
+        out->append(static_cast<char*>(contents), totalSize);
+        return totalSize;
+    };
 
-        // Perform the synchronous request
-        CURLcode res = curl_easy_perform(curl);
-
-        if (res != CURLE_OK) 
-        {
-            std::cerr << "Download failed: " << curl_easy_strerror(res) << std::endl;
-        }
-        else 
-        {
-            long res;
-            curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &res);
-            if (res != 200)
-            {
-                data.clear(); // Clear the data if the download failed
-                std::print("downloading {} failed with status code {}\n", url, res);
-            }
-            else
-            {
-                // Save the content to the local file
-                std::ofstream outfile(localPath);
-                outfile << data;
-                outfile.close();
-            }
-        }
-
-        curl_easy_cleanup(curl); // Clean up after the operation
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &data);
+    CURLcode res = curl_easy_perform(curl);
+    if (res != CURLE_OK) 
+    {
+        std::cerr << "Download failed: " << curl_easy_strerror(res) << std::endl;
     }
-    return data;
+    else 
+    {
+        long res;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &res);
+        if (res != 200)
+        {
+            data.clear(); 
+            std::print("downloading {} failed with status code {}\n", url, res);
+        }
+        else
+        {
+            // Save the content to the local file
+            std::ofstream outfile(localPath);
+            outfile << data;
+            outfile.close();
+        }
+    }
+    curl_easy_cleanup(curl); 
 }
 
 std::string getFileContent(const std::string& year, const std::string& grade, int region, bool allowDownload)
@@ -89,13 +84,14 @@ std::vector<std::string> splitLines(const std::string& content)
     std::string line;
     std::istringstream stream(content);
 
-    // Read each line from the stringstream
-    while (std::getline(stream, line)) {
-        // If the line is not empty, add it to the vector
-        if (!line.empty() && line.back() == '\r') {
+    while (std::getline(stream, line)) 
+    {
+        if (!line.empty() && line.back() == '\r') 
+        {
             line.pop_back();
         }    
-        if (!line.empty()) {
+        if (!line.empty()) 
+        {
             lines.push_back(line);
         }
     }
@@ -136,7 +132,6 @@ int main(int argc, char* argv[])
         allowDownload = false;
     }
 
-    // Ensure the download folder exists
     std::filesystem::create_directory(downloadFolder);
     std::vector<cResult> results;
 
@@ -154,7 +149,6 @@ int main(int argc, char* argv[])
         std::print("region #{} is {}\n", region, regionName);
         for (auto& line : lines | std::views::drop(4))
         {
-            // if line begins with "Megye" stop
             if (line.find("Megye") == 0)
             {
                 break;
@@ -172,7 +166,6 @@ int main(int argc, char* argv[])
         }
     }
     std::ranges::sort(results, [](const cResult& a, const cResult& b) { return std::make_tuple(a.points, a.prior, b.name) > std::make_tuple(b.points, b.prior, a.name); });
-    // write out to file
     std::ofstream outfile(std::format("eredmenyek_{}_{}.txt", year, grade));
     for (auto&& [pos, result] : results | std::views::enumerate)
     {
@@ -181,7 +174,6 @@ int main(int argc, char* argv[])
 
         resultText += std::format(" {:35} {:3}  {:3}  {:50} {:20}\n", result.name, result.points, result.prior, result.school, result.city);
 
-        // pos, name, points, prior, schoold, city
         std::print("{}", resultText);
         outfile << resultText;
     }
