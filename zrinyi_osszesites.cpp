@@ -7,6 +7,8 @@
 #include <print> 
 #include <ranges>
 
+std::string downloadFolder = "./downloads";
+
 // Callback function to store the data in a string
 size_t writeCallback(void* contents, size_t size, size_t nmemb, std::string* out) 
 {
@@ -15,20 +17,6 @@ size_t writeCallback(void* contents, size_t size, size_t nmemb, std::string* out
     return totalSize;
 }
 
-// Function to check if the file exists locally
-bool fileExists(const std::string& filepath) 
-{
-    return std::filesystem::exists(filepath);
-}
-
-// Function to load the content from a local file
-std::string loadFromFile(const std::string& filepath) 
-{
-    std::ifstream file(filepath);
-    std::string content((std::istreambuf_iterator<char>(file)),
-        std::istreambuf_iterator<char>());
-    return content;
-}
 
 // Function to download the file from the URL and save it locally
 std::string downloadFile(const std::string& url, const std::string& localPath) 
@@ -71,28 +59,27 @@ std::string downloadFile(const std::string& url, const std::string& localPath)
     return data;
 }
 
-std::string getFileContent(const std::string& url, const std::string& downloadFolder, bool allowDownload) 
+std::string getFileContent(const std::string& year, const std::string& grade, int region, bool allowDownload)
 {
-    // Extract the file name from the URL (you could modify this as needed)
-    std::string filename = url.substr(url.find_last_of("/") + 1);
+    std::string url = std::format("http://www.mategye.hu/download/eredmenyek/{}/Z_{}_egyenieredmeny70_{}.txt", year, region, grade);
+    std::string localFilePath = std::format("{}/{}_{}_{}.txt", downloadFolder, year, grade, region);
 
-    // Combine the folder and file name to get the full path
-    std::string localFilePath = downloadFolder + "/" + filename;
-
-    if (fileExists(localFilePath)) 
+    if (std::filesystem::exists(localFilePath))
     {
-        return loadFromFile(localFilePath);
+        std::ifstream file(localFilePath);
+        std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+        if(!content.empty())
+        {
+            return content;
+        }
     }
-    else 
+    if (allowDownload)
     {
-        if (allowDownload)
-        {
-            return downloadFile(url, localFilePath);
-        }
-        else
-        {
-            return {};
-        }
+        return downloadFile(url, localFilePath);
+    }
+    else
+    {
+        return {};
     }
 }
 
@@ -117,7 +104,7 @@ std::vector<std::string> splitLines(const std::string& content)
 
 struct cResult
 {
-    std::string zoneName;
+    std::string regionName;
     std::string name;
     std::string school;
     std::string city;
@@ -149,35 +136,31 @@ int main(int argc, char* argv[])
         allowDownload = false;
     }
 
-    // Define the download folder
-    std::string downloadFolder = "./downloads";
     // Ensure the download folder exists
     std::filesystem::create_directory(downloadFolder);
     std::vector<cResult> results;
 
-    for (int z = 10; z < 40; ++z)
+    for (int region = 10; region <= 35; ++region)
     {
-
-        // Create the URL using C++23 format
-        std::string url = std::format("http://www.mategye.hu/download/eredmenyek/{}/Z_{}_egyenieredmeny70_{}.txt", year, z, grade);
-
-        // Get the content (either from the local file or by downloading)
-        std::string content = getFileContent(url, downloadFolder, allowDownload);
+        std::string content = getFileContent(year, grade, region, allowDownload);
         if (content.empty())
         {
-            std::print("zone #{} is missing\n", z);
+            std::print("region #{} is missing\n", region);
             continue;
         }
-
         auto lines = splitLines(content);
-        std::string zoneName = lines[0];
-        zoneName = zoneName.substr(zoneName.find(':') + 2);
-
-        std::print("Zone #{} is {}\n", z, zoneName);
+        std::string regionName = lines[0];
+        regionName = regionName.substr(regionName.find(':') + 2);
+        std::print("region #{} is {}\n", region, regionName);
         for (auto& line : lines | std::views::drop(4))
         {
+            // if line begins with "Megye" stop
+            if (line.find("Megye") == 0)
+            {
+                break;
+            }
             auto& result = results.emplace_back();
-            result.zoneName = zoneName;
+            result.regionName = regionName;
             result.name = line.substr(6, 35-6);
             result.name = result.name.substr(0, result.name.find_last_not_of(' ') + 1);
             result.school = line.substr(69, 115 - 69);
@@ -188,14 +171,19 @@ int main(int argc, char* argv[])
             result.prior = std::stoi(line.substr(61, 68 - 61));
         }
     }
-    std::ranges::sort(results, [](const cResult& a, const cResult& b) { return std::make_pair(a.points, a.prior) > std::make_pair(b.points, b.prior); });
+    std::ranges::sort(results, [](const cResult& a, const cResult& b) { return std::make_tuple(a.points, a.prior, b.name) > std::make_tuple(b.points, b.prior, a.name); });
     // write out to file
-    std::ofstream outfile("eredmenyek.txt");
+    std::ofstream outfile(std::format("eredmenyek_{}_{}.txt", year, grade));
     for (auto&& [pos, result] : results | std::views::enumerate)
     {
+        std::string resultText = 
+            pos != 0 && results[pos].points == results[pos - 1].points && results[pos].prior == results[pos - 1].prior ? "   " : std::format("{:3}", pos + 1);
+
+        resultText += std::format(" {:35} {:3}  {:3}  {:50} {:20}\n", result.name, result.points, result.prior, result.school, result.city);
+
         // pos, name, points, prior, schoold, city
-        std::print("{:3} {:35} {:3}  {:3}  {:45} {:20}\n", pos + 1, result.name, result.points, result.prior, result.school, result.city);
-        outfile << std::format("{:3} {:35} {:3}  {:3}  {:45} {:20}\n", pos + 1, result.name, result.points, result.prior, result.school, result.city);
+        std::print("{}", resultText);
+        outfile << resultText;
     }
 
     return 0;
